@@ -1,0 +1,30 @@
+name: @name@
+
+on:
+  push:
+    branches: [ @branch@ ]
+@paths@
+
+permissions:
+  id-token: write               # exposes the OIDC token endpoint — required
+  contents: read
+
+concurrency:                    # coalesce rapid pushes; never two publishes at once
+  group: @group@
+  cancel-in-progress: false     # let an in-flight publish finish, then run latest
+
+jobs:
+  @job_name@:
+    runs-on: @os@
+    container:                  # deps prebaked; see Phase 3 note
+      image: @image@
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      AWS_REGION:   @region@
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+@steps@

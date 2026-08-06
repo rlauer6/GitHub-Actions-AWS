@@ -1,0 +1,46 @@
+package GitHub::Actions::AWS::S3;
+
+use strict;
+use warnings;
+
+use Amazon::S3::Lite;
+use Amazon::Credentials;
+use GitHub::Actions::OIDC;
+
+use CLI::Simple::Constants qw(:booleans);
+use CLI::Simple::Utils qw(slurp choose slurp_json);
+use English qw(-no_match_vars);
+use Data::Dumper;
+use File::ShareDir qw(dist_file);
+use List::Util qw(pairs);
+
+use Role::Tiny;
+
+########################################################################
+sub cmd_upload_to_s3 {
+########################################################################
+  my ($self) = @_;
+
+  my ($tarball) = glob '*.tar.gz';
+
+  return $FAILURE
+    if !$tarball;
+
+  my $bucket = $self->get_bucket;
+  my $key    = sprintf 'orepan2/authors/id/D/DU/DUMMY/%s', $tarball;
+
+  GitHub::Actions::OIDC->setup_aws_web_identity( role_arn => $ENV{AWS_ROLE_ARN} )
+    if GitHub::Actions::OIDC->available;
+
+  my $s3 = Amazon::S3::Lite->(
+    { region      => 'us-east-1',
+      credentials => Amazon::Credentials->new( order => [ env web_identity ] )
+    }
+  );
+
+  $s3->put_object( $bucket, $key, slurp($tarball) );
+
+  return $SUCCESS;
+}
+
+1;

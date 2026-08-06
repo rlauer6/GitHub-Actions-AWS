@@ -1,0 +1,255 @@
+package GitHub::Actions::AWS::IAM;
+
+use strict;
+use warnings;
+
+use CLI::Simple::Constants qw(:booleans);
+use CLI::Simple::Utils qw(slurp choose slurp_json);
+use English qw(-no_match_vars);
+use Data::Dumper;
+use File::ShareDir qw(dist_file);
+use List::Util qw(none);
+use JSON;
+
+use Role::Tiny;
+
+########################################################################
+sub cmd_create_role {
+########################################################################
+  my ($self) = @_;
+
+  my $role_name = $self->get_role_name // 'github-actions-role';
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my $account_id = choose {
+    return $self->get_account_id
+      if $self->get_account_id;
+
+    my $rsp = $self->_sts_get_caller_identity;
+
+    return $rsp->{Account};
+  };
+
+  my $repo       = $self->get_repo;
+  my $repo_owner = $self->get_repo_owner;
+  my $branch     = $self->get_branch;
+
+  die "ERROR: --account-id, --repo, --repo-owner are required arguments\n"
+    if !$repo || !$repo_owner;
+
+  my $trust_policy_tpl = slurp( dist_file( 'GitHub-Actions-AWS', 'trust-policy.json.tpl' ) );
+  $trust_policy_tpl =~ s/[@]account_id[@]/$account_id/xsmg;
+  $trust_policy_tpl =~ s/[@]repo[@]/$repo/xsmg;
+  $trust_policy_tpl =~ s/[@]repo_owner[@]/$repo_owner/xsmg;
+  $trust_policy_tpl =~ s/[@]branch[@]/$branch/xsmg;
+
+  my $trust_policy = JSON->new->decode($trust_policy_tpl);
+
+  my $dryrun = $self->get_dryrun ? ' (dryrun)' : q{};
+
+  my $role_rsp = eval {
+
+    die 'NoSuchEntity'
+      if $dryrun;
+
+    return $self->_iam_get_role($role_name);
+  };
+
+  if ( !$role_rsp && $EVAL_ERROR =~ /nosuchentity/xsmi ) {
+    $self->get_logger->info( sprintf 'creating role "%s"%s', $role_name, $dryrun );
+
+    if ( !$dryrun ) {
+      $self->_iam_create_role( $role_name, $trust_policy );
+    }
+
+    print {*STDOUT} JSON->new->pretty->encode($trust_policy);
+  }
+  else {
+    print {*STDOUT} sprintf qq{Role "%s" already exists.\n}, $role_name;
+  }
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_put_role_policy {
+########################################################################
+  my ($self) = @_;
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my $dryrun = $self->get_dryrun ? ' (dryrun)' : q{};
+
+  my $role_name = $self->get_role_name;
+
+  die "ERROR: --role-name is a required argument\n"
+    if !$role_name;
+
+  my $policy_name = $self->get_policy_name // "$role_name-policy";
+
+  my $policy_rsp = eval {
+    return { PolicyNames => [] }
+      if $dryrun;
+
+    return $self->_iam_list_role_policies($role_name);
+  };
+
+  die "ERROR: could not list role policies\n$EVAL_ERROR"
+    if !$policy_rsp;
+
+  if ( !@{ $policy_rsp->{PolicyNames} } || none { $policy_name eq $_ } @{ $policy_rsp->{PolicyNames} } ) {
+    $self->get_logger->info( sprintf 'creating permissions policy "%s/%s"%s', $role_name, $policy_name, $dryrun );
+
+    my $policy_document = $self->get_policy_document;
+
+    die sprintf "ERROR: %s not found\n"
+      if !$policy_document || !-f $policy_document;
+
+    my $policy = slurp_json($policy_document);
+
+    if ( !$dryrun ) {
+      $self->_iam_put_role_policy( $role_name, $policy_name, $policy );
+      print {*STDOUT} JSON->new->pretty->encode($policy);
+    }
+    else {
+      print {*STDOUT} JSON->new->pretty->encode($policy);
+    }
+  }
+  else {
+    print {*STDOUT} sprintf "Policy %s already exists.\n", $policy_name;
+  }
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub _iam_delete_role_policy {
+########################################################################
+  my ( $self, $role_name, $policy_name ) = @_;
+
+  my $iam = $self->_get_iam;
+  return $iam->DeleteRolePolicy( { RoleName => $role_name, PolicyName => $policy_name } );
+}
+
+########################################################################
+sub _iam_delete_role {
+########################################################################
+  my ( $self, $role_name, $policy_name ) = @_;
+
+  my $iam = $self->_get_iam;
+  return $iam->DeleteRole( { RoleName => $role_name } );
+}
+
+########################################################################
+sub cmd_delete_role {
+########################################################################
+  my ($self) = @_;
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my $role_name = $self->get_role_name;
+
+  die "ERROR: --role-name is a required argument\n"
+    if !$role_name;
+
+  $self->_iam_delete_role($role_name);
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_delete_role_policy {
+########################################################################
+  my ($self) = @_;
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my $role_name = $self->get_role_name;
+
+  die "ERROR: --role-name is a required argument\n"
+    if !$role_name;
+
+  my $policy_name = $self->get_policy_name;
+
+  die "ERROR: --policy-name is a required argument\n"
+    if !$policy_name;
+
+  $self->_iam_delete_role_policy( $role_name, $policy_name );
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub _get_iam {
+########################################################################
+  my ($self) = @_;
+
+  return $self->get_iam
+    if $self->get_iam;
+
+  my $iam = Amazon::API::IAM->new( log_level => $self->get_log_level );
+
+  $self->set_iam($iam);
+
+  return $iam;
+}
+
+########################################################################
+sub _iam_get_role {
+########################################################################
+  my ( $self, $role_name ) = @_;
+
+  my $iam = $self->_get_iam;
+
+  my $rsp = $iam->GetRole( { RoleName => $role_name } );
+
+  return $rsp;
+}
+
+########################################################################
+sub _iam_list_role_policies {
+########################################################################
+  my ( $self, $role_name ) = @_;
+
+  my $iam = $self->_get_iam;
+
+  my $rsp = $iam->ListRolePolicies( { RoleName => $role_name } );
+
+  return $rsp;
+}
+
+########################################################################
+sub _iam_create_role {
+########################################################################
+  my ( $self, $role_name, $policy ) = @_;
+
+  my $iam = $self->_get_iam;
+
+  $iam->CreateRole(
+    { RoleName                 => $role_name,
+      AssumeRolePolicyDocument => encode_json($policy),
+    }
+  );
+
+  return;
+}
+
+########################################################################
+sub _iam_put_role_policy {
+########################################################################
+  my ( $self, $role_name, $policy_name, $policy ) = @_;
+
+  my $iam = $self->_get_iam;
+
+  $iam->PutRolePolicy(
+    { RoleName       => $role_name,
+      PolicyName     => $policy_name,
+      PolicyDocument => encode_json($policy),
+    }
+  );
+
+  return;
+}
+
+1;

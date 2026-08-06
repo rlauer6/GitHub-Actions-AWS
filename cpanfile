@@ -1,0 +1,14 @@
+requires "Amazon::API::IAM", "2.2.1";
+requires "Amazon::API::STS", "2011.06.15";
+requires "Amazon::Credentials", "1.3.1";
+requires "Amazon::S3::Lite", "1.3.0";
+requires "CLI::Simple", "2.2.1";
+requires "CLI::Simple::Constants", "2.2.1";
+requires "CLI::Simple::Utils", "2.2.1";
+requires "File::ShareDir", "1.118";
+requires "GitHub::Actions::OIDC", "1.0.0";
+requires "JSON", "4.10";
+requires "Readonly", "2.05";
+requires "Role::Tiny", "2.002004";
+requires "Role::Tiny::With", "2.002004";
+requires "YAML::Tiny", "1.76";

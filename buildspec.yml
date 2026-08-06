@@ -1,0 +1,42 @@
+---
+project:
+  description: GitHub::Actions::AWS
+  author:
+    name: Rob Lauer
+    mailto: rclauer@gmail.com
+pm-module: GitHub::Actions::AWS
+min-perl-version: 5.010
+dependencies:
+  requires: requires
+  test-requires: test-requires
+  recommends: recommends
+  suggests: suggests
+path:
+  pm-module: lib
+  exe-files: bin
+  tests: t
+extra-files:
+  - ChangeLog
+  - share:
+      - README.md
+      - share/action.yml
+      - share/cloudfront-invalidate.json.tpl
+      - share/ecr-push.json.tpl
+      - share/ecs-deploy.json.tpl
+      - share/lambda-deploy.json.tpl
+      - share/s3-static-deploy.json.tpl
+      - share/secrets-read.json.tpl
+      - share/sns-notify.json.tpl
+      - share/ssm-read.json.tpl
+      - share/tf-state.json.tpl
+      - share/trust-policy.json.tpl
+
+resources:
+  bugtracker:
+    mailto: rclauer@gmail.com
+    web: https://github.com/rlauer6/GitHub-Actions-AWS/issues
+  homepage: https://github.com/rlauer6/GitHub-Actions-AWS
+  repository:
+    type: git
+    url: git@github.com:rlauer6/GitHub-Actions-AWS.git
+    web: https://github.com/rlauer6/GitHub-Actions-AWS

@@ -1,0 +1,34 @@
+name: cpan-dist-maker
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  id-token: write               # exposes the OIDC token endpoint — required
+  contents: read
+
+concurrency:                    # coalesce rapid pushes; never two publishes at once
+  group: cpan-dist-maker-group
+  cancel-in-progress: false     # let an in-flight publish finish, then run latest
+
+jobs:
+  cpan-dist-maker-job:
+    runs-on: ubuntu-latest
+    container:                  # deps prebaked; see Phase 3 note
+      image: debian:trixie
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      AWS_REGION:   us-east-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: build
+        run: |
+          ./builder
+      - name: publish
+        run: |
+          gha-aws --bucket cpan.openbedrock.net push-to-s3

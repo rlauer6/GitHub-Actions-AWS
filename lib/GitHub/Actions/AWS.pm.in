@@ -1,0 +1,99 @@
+package GitHub::Actions::AWS;
+
+use strict;
+use warnings;
+
+use Amazon::API::IAM;
+use Amazon::API::STS;
+use Amazon::Credentials;
+
+use CLI::Simple::Constants qw(:booleans);
+use CLI::Simple::Utils qw(slurp choose slurp_json);
+use English qw(-no_match_vars);
+use Data::Dumper;
+use File::ShareDir qw(dist_file);
+use List::Util qw(none);
+use JSON;
+
+use Role::Tiny::With;
+with 'GitHub::Actions::AWS::IAM';
+with 'GitHub::Actions::AWS::IAM::Permissions';
+with 'GitHub::Actions::AWS::Workflow';
+
+use parent qw(CLI::Simple);
+
+__PACKAGE__->use_log4perl( level => 'info' );
+
+our $VERSION = '@PACKAGE_VERSION@';
+
+caller or exit __PACKAGE__->main();
+
+########################################################################
+sub _get_sts {
+########################################################################
+  my ($self) = @_;
+  return $self->get_sts
+    if $self->get_sts;
+
+  my $sts = Amazon::API::STS->new( log_level => $self->get_log_level );
+  $self->set_sts($sts);
+
+  return $sts;
+}
+
+########################################################################
+sub _sts_get_caller_identity {
+########################################################################
+  my ($self) = @_;
+
+  return $self->_get_sts->GetCallerIdentity;
+}
+
+########################################################################
+sub main {
+########################################################################
+  my @option_specs = qw(
+    help|h
+    account-id|a=s
+    branch|b=s
+    bucket=s
+    dryrun|D
+    group=s
+    image=s
+    job-name|j=s
+    log-level|l=s
+    name=s
+    operating-system=s
+    permissions=s
+    policy-document=s
+    policy-name|P=s
+    profile|p=s
+    rebuild-paths=s
+    region=s
+    repo-owner|o=s
+    repo|R=s
+    role-name|r=s
+    steps=s@
+  );
+
+  my %commands = (
+    'create-permissions-policy' => \&cmd_create_permissions_policy,
+    'create-role'               => \&cmd_create_role,
+    'create-workflow'           => \&cmd_create_workflow,
+    'delete-role'               => \&cmd_delete_role,
+    'delete-role-policy'        => \&cmd_delete_role_policy,
+    'list-permissions'          => \&cmd_list_permissions,
+    'put-role-policy'           => \&cmd_put_role_policy,
+    'push-to-s3'                => \&cmd_push_to_s3,
+  );
+
+  return __PACKAGE__->new(
+    commands        => \%commands,
+    option_specs    => \@option_specs,
+    extra_options   => [qw(iam sts)],
+    abbreviations   => $TRUE,
+    default_options => { branch => 'main', region => 'us-east-1', operating_system => 'ubuntu:latest' },
+  )->run();
+}
+
+1;

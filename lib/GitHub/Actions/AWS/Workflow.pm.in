@@ -1,0 +1,79 @@
+package GitHub::Actions::AWS::Workflow;
+
+use strict;
+use warnings;
+
+use CLI::Simple::Constants qw(:booleans);
+use CLI::Simple::Utils qw(slurp choose slurp_json);
+use English qw(-no_match_vars);
+use Data::Dumper;
+use File::ShareDir qw(dist_file);
+use List::Util qw(pairs);
+
+use Role::Tiny;
+
+########################################################################
+sub cmd_create_workflow {
+########################################################################
+  my ($self) = @_;
+
+  my $branch = $self->get_branch;
+  my $name   = $self->get_name;
+
+  die "ERROR: --name is a required argument\n"
+    if !$name;
+
+  my $image = $self->get_image;
+
+  die "ERROR: --image is a required argument\n"
+    if !$image;
+
+  my $steps_kv = $self->get_steps;
+
+  die "ERROR: you must have at least 1 step\n"
+    if !$steps_kv || !@{$steps_kv};
+
+  my @steps;
+
+  foreach my $kv ( @{$steps_kv} ) {
+    my ( $step_name, $run ) = split /=/xsm, $kv, 2;
+    die "ERROR: invalid step - use --step name='command'\n"
+      if !$step_name || !defined $run;
+
+    push @steps, { name => $step_name, run => $run };
+  }
+
+  my $paths  = $self->get_rebuild_paths;
+  my $region = $self->get_region;
+  my $os     = $self->get_operating_system;
+
+  my $group    = $self->get_group    // "$name-group";
+  my $job_name = $self->get_job_name // "$name-job";
+
+  my $workflow_txt = slurp( dist_file( 'GitHub-Actions-AWS', 'action.yml' ) );
+
+  $workflow_txt =~ s/[@]branch[@]/$branch/xsm;
+  $workflow_txt =~ s/[@]group[@]/$group/xsm;
+  $workflow_txt =~ s/[@]image[@]/$image/xsm;
+  $workflow_txt =~ s/[@]os[@]/$os/xsm;
+  $workflow_txt =~ s/[@]region[@]/$region/xsm;
+  $workflow_txt =~ s/[@]name[@]/$name/xsm;
+  $workflow_txt =~ s/[@]job_name[@]/$job_name/xsm;
+
+  my $paths_yaml
+    = ( $paths && @{$paths} )
+    ? "    paths:\n" . join( "\n", map {"      - '$_'"} @{$paths} )
+    : q{};
+
+  my $steps_yaml = join "\n", map {"      - name: $_->{name}\n        run: |\n          $_->{run}"} @steps;
+
+  $workflow_txt =~ s/^[@]paths[@]\n//xsm if !$paths_yaml;  # drop the line if none
+  $workflow_txt =~ s/[@]paths[@]/$paths_yaml/xsm;
+  $workflow_txt =~ s/[@]steps[@]/$steps_yaml/xsm;
+
+  print {*STDOUT} $workflow_txt;
+
+  return $SUCCESS;
+}
+
+1;

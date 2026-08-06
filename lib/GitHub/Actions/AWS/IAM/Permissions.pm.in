@@ -1,0 +1,134 @@
+package GitHub::Actions::AWS::IAM::Permissions;
+
+use strict;
+use warnings;
+
+use Role::Tiny;
+
+use CLI::Simple::Constants qw(:booleans);
+use CLI::Simple::Utils qw(slurp slurp_json to_snake_case toPascalCase choose);
+use Data::Dumper;
+use English qw(-no_match_vars);
+use List::Util qw(any);
+use File::ShareDir qw(dist_dir);
+use JSON;
+use YAML::Tiny qw(LoadFile);
+
+use Readonly;
+Readonly::Scalar our $POLICY_VERSION => '2012-10-17';
+
+caller or exit __PACKAGE__->example();
+
+########################################################################
+sub cmd_create_permissions_policy {
+########################################################################
+  my ($self) = @_;
+
+  my ($permissions) = $self->get_args;
+
+  die "ERROR: usage: assemble-permissions permissions.json|yml\n"
+    if !$permissions;
+
+  my $config = eval {
+    return slurp_json($permissions)
+      if $permissions =~ /[.]json$/xsm;
+
+    return LoadFile($permissions)
+      if $permissions =~ /[.]ya?ml$/xsm;
+
+    die "permissions file must be .yaml|.yml|.json\n";
+  };
+
+  die "ERROR: could not load permissions from $permissions\n$EVAL_ERROR"
+    if !$config || $EVAL_ERROR;
+
+  die "ERROR: invalid format for $permissions, 'capabilities' and 'vars' are required keys\n"
+    if !defined $config->{capabilities} || !defined $config->{vars};
+
+  my $fragments = $self->_get_fragments;
+  my @statements;
+
+  my %required;
+
+  foreach my $c ( @{ $config->{capabilities} } ) {
+    ( my $name = $c ) =~ s/_/-/xsmg;  # normalize to the filename form
+
+    my $statements = $fragments->{$name}
+      or die "ERROR: no such permission policy ($c)\n";
+
+    push @statements, @{$statements};  # ALL statements, not [0]
+
+    my $text = encode_json($statements);
+    while ( $text =~ /[@]([^@]+)[@]/xsmg ) { $required{$1} = 1; }
+  }
+
+  my %have_vars;
+
+  foreach my $k ( keys %{ $config->{vars} } ) {
+    my $v = $k;
+    $v =~ s/[-]/_/xsmg;
+    $have_vars{$v} = $config->{vars}{$k};
+  }
+
+  my @missing;
+
+  foreach my $r ( keys %required ) {
+    next if any { $_ eq $r } keys %have_vars;
+    push @missing, $r;
+  }
+
+  die sprintf "ERROR: missing values:\n%s\n", join "\n\t", @missing
+    if @missing;
+
+  my $text_policy = JSON->new->pretty->encode( { Version => $POLICY_VERSION, Statement => \@statements } );
+
+  foreach my $v ( keys %have_vars ) {
+    my $value = $have_vars{$v};
+    $text_policy =~ s/[@]$v[@]/$value/xsmg;
+  }
+
+  print {*STDOUT} $text_policy;
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_list_permissions {
+########################################################################
+  my ($self) = @_;
+
+  my $fragments = $self->_get_fragments;
+
+  print {*STDOUT} sprintf "%s\n", join "\n", map { to_snake_case $_ } keys %{$fragments};
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub _get_fragments {
+########################################################################
+  my ($self) = @_;
+
+  my @files = grep { !/(?:trust|permissions)/xsm } glob sprintf '%s/%s', dist_dir('GitHub-Actions-AWS'), '*.tpl';
+
+  my %fragments;
+
+  foreach my $f (@files) {
+    my ($name) = $f =~ m{ ([^/]+) [.]json[.]tpl $ }xsm;
+    $fragments{$name} = JSON->new->decode( slurp($f) );  # the full array
+  }
+
+  return \%fragments;
+}
+
+########################################################################
+sub example {
+########################################################################
+  my $fragments = __PACKAGE__->_get_fragments;
+
+  print JSON->new->pretty->encode($fragments);
+
+  return $SUCCESS;
+}
+
+1;
