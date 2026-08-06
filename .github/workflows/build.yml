@@ -3,6 +3,7 @@ name: cpan-dist-maker
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   id-token: write               # exposes the OIDC token endpoint — required
