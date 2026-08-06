@@ -18,9 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     container:                  # deps prebaked; see Phase 3 note
       image: debian:trixie
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
     env:
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
       AWS_REGION:   us-east-1
