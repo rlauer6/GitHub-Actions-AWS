@@ -112,7 +112,7 @@ fi
 
 BRANCH_NAME="${BUILD_BRANCH:-${GITHUB_REF_NAME:-}}"
 if [[ -n "${BRANCH_NAME}" ]]; then
-    if ! [[ -d ".git" ]]; then
+    if  [[ -d ".git" ]]; then
         echo "checking out $BRANCH_NAME"
         git checkout "$BRANCH_NAME"
     fi
