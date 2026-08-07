@@ -30,6 +30,8 @@ sub cmd_upload_to_s3 {
   my $bucket = $self->get_bucket;
   my $key    = sprintf 'orepan2/authors/id/D/DU/DUMMY/%s', $tarball;
 
+  $self->get_logger->info( sprintf 'ENVIRONMENT: %s', Dumper( \%ENV ) );
+
   $self->get_logger->info('setting up web identity...');
 
   GitHub::Actions::OIDC->setup_aws_web_identity( role_arn => $ENV{AWS_ROLE_ARN} )
