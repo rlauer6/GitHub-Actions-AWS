@@ -1,0 +1,69 @@
+package GitHub::Actions::API;
+
+use strict;
+use warnings;
+
+use CLI::Simple::Constants qw(:booleans);
+
+use Data::Dumper;
+use HTTP::Tiny;
+use English qw(-no_match_vars);
+use JSON;
+
+use Role::Tiny;
+
+use Readonly;
+Readonly::Scalar our $URL_TEMPLATE => 'https://api.github.com/repos/%s/%s/actions/variables';
+
+########################################################################
+sub cmd_set_gh_variable {
+########################################################################
+  my ($self) = @_;
+
+  my $repo       = $self->get_repo;
+  my $repo_owner = $self->get_repo_owner;
+
+  my ( $var, $value ) = $self->get_args;
+
+  die "ERROR: usage: gha-aws --repo repo --repo-owner repo-owner set-gh-variable var value\n"
+    if !$repo || !$repo_owner || !$var || !defined $value;
+
+  my $token = $ENV{GITHUB_TOKEN};
+
+  die "ERROR: set GITHUB_TOKEN first\n"
+    if !$token;
+
+  my %headers = (
+    Authorization          => "Bearer $token",
+    Accept                 => 'application/vnd.github+json',
+    'X-GitHub-Api-Version' => '2022-11-28',
+    'Content-type'         => 'application/json',
+  );
+
+  my $url = sprintf $URL_TEMPLATE, $repo_owner, $repo;
+
+  my $payload = {
+    name  => $var,
+    value => $value
+  };
+
+  my %options = (
+    content => encode_json($payload),
+    headers => \%headers,
+  );
+
+  my $rsp = HTTP::Tiny->new->post( $url, \%options );
+
+  return $SUCCESS
+    if $rsp->{success} || $rsp->{status} != 409;
+
+  $url .= "/$var";
+  $rsp = HTTP::Tiny->new->request( PATCH => $url, \%options );
+
+  if ( $rsp->{status} =~ /^2/ ) {
+    print {*STDOUT} "Successfully update $var => $value\n";
+  }
+}
+
+1;
+

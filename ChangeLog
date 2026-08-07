@@ -1,3 +1,63 @@
+Fri Aug  7 13:38:47 2026  Rob Lauer  <rclauer@gmail.com>
+
+	[1.0.1]:
+	* VERSION: bump
+	* .github/workflows/build.yml
+	- changed name, group
+	- add env vars
+	* .gitignore
+	- + bin/*, !bin/*.in
+	- + extra-files-mk
+	* README.md: generated
+	* README.md.in: new
+	* bin/gha-manage-role.in: new
+	* lib/GitHub/Actions/AWS.pm.in
+	- added GitHub::Action::AWS::S3, GitHub::Action::API roles
+	- new options, --bucket-prefix, --format
+	(main)
+	- new commands: create-open-id-connect-provider, delete-open-id-connect-provider,
+	- list-open-id-connect-providers, get-open-id-connect-provider, get-role, set-gh-variable
+	- list-role-policies, list-action-policies
+	- renamed push-to-s3 => upload-to-s3
+	* lib/GitHub/Actions/AWS/IAM.pm.in
+	(cmd_get_role): new
+	(cmd_list_action_roles): new
+	(cmd_list_role_policies): new
+	(cmd_create_open_id_connect_provider): new
+	(cmd_delete_open_id_connect_provider): new
+	(cmd_list_open_id_connect_providers): new
+	(cmd_get_open_id_connect_provider): new
+	(_iam_get_role): new
+	(_iam_list_action_roles): new
+	(_iam_list_role_policies): new
+	(_iam_create_open_id_connect_provider): new
+	(_iam_delete_open_id_connect_provider): new
+	(_iam_list_open_id_connect_providers): new
+	(_iam_get_open_id_connect_provider): new
+	(cmd_create_role)
+	- require role name
+	- add /github-actions/ path
+	(_iam_list_roles): new
+	(_iam_create_role): accept path argument
+	* lib/GitHub/Actions/AWS/IAM/Permissions.pm.in
+	(cmd_list_permissions)
+	- output table of permissions
+	- output YAML formatted version of permission options
+	* lib/GitHub/Actions/AWS/S3.pm.in
+	(cmd_upload_to_s3)
+	- debugging output
+	- use env vars for bucket name, prefix
+	* share/trust-policy.json.tpl
+	- use wildcard because GitHub injects numeric ids
+	* bin/gha-manage-role.in: new
+	* lib/GitHub/Actions/API.pm.in: new
+	* .includes/version.mk: updated by CPAN::Maker::Bootstrapper
+	* Makefile: modified
+	* requires: modified
+	* deps.mk: modified
+	* suggests: modified
+	* cpanfile: modified
+
 Thu Aug 06 16:04:00  Rob Lauer  rclauer@gmail.com
 
 	[1.0.0]:

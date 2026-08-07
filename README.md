@@ -1,3 +1,287 @@
+# GitHub::Actions::AWS
+
 # Table of Contents
 
+* [GitHub::Actions::AWS](#githubactionsaws)
+  * [What This Project Does](#what-this-project-does)
+  * [How It Works With GitHub::Actions::OIDC](#how-it-works-with-githubactionsoidc)
+  * [Prerequisites](#prerequisites)
+    * [1. Register the GitHub OIDC provider in your AWS account (once per account)](#1-register-the-github-oidc-provider-in-your-aws-account-once-per-account)
+    * [2. Grant `id-token: write` in the workflow](#2-grant-id-token-write-in-the-workflow)
+  * [The Tools](#the-tools)
+    * [`gha-aws`](#gha-aws)
+    * [`gha-manage-role`](#gha-manage-role)
+  * [End-to-End Quickstart](#end-to-end-quickstart)
+  * [Permission Capability Fragments](#permission-capability-fragments)
+  * [Trust Policy Scoping](#trust-policy-scoping)
+  * [See Also](#see-also)
+  * [License](#license)
 
+## What This Project Does
+
+`GitHub::Actions::AWS` provisions and drives **keyless** GitHub Actions
+workflows that talk to AWS. There are no long-lived access keys stored in
+your repository or in GitHub secrets. Instead, a workflow proves its
+identity to AWS with a short-lived OpenID Connect (OIDC) token that GitHub
+mints at run time, and AWS hands back temporary credentials scoped to a
+role you control.
+
+The project gives you a single command-line tool, `gha-aws`, plus a thin
+convenience wrapper, `gha-manage-role`, that together cover the whole
+lifecycle:
+
+- **Provision** the IAM role and its OIDC trust policy, and assemble a
+  least-privilege permissions policy from composable capability fragments.
+- **Generate** the `.github/workflows` YAML that requests an OIDC token and
+  runs your job.
+- **Act** at run time — the `upload-to-s3` command performs the actual work
+  inside the workflow, acquiring credentials via OIDC and syncing files to
+  S3.
+
+It is the AWS-specific companion to
+[`GitHub::Actions::OIDC`](https://metacpan.org/pod/GitHub::Actions::OIDC),
+which handles the cloud-neutral half: fetching the OIDC token itself.
+
+## How It Works With GitHub::Actions::OIDC
+
+The two distributions split cleanly along a seam. `GitHub::Actions::OIDC`
+knows how to obtain a GitHub Actions OIDC token and hand it to AWS's
+web-identity flow; it has no AWS-specific provisioning logic and no
+non-core dependencies. `GitHub::Actions::AWS` owns everything AWS: the IAM
+role, the trust and permissions policies, the workflow template, and the
+runtime actions.
+
+At **run time**, inside a workflow, the credential chain is:
+
+1. The job is granted `id-token: write`, which exposes GitHub's OIDC token
+   endpoint to the runner.
+2. `GitHub::Actions::OIDC->setup_aws_web_identity` fetches the JWT from that
+   endpoint, writes it to a temporary file, and sets
+   `AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN`.
+3. `Amazon::Credentials`' `web_identity` provider reads the token file and
+   performs the `sts:AssumeRoleWithWebIdentity` exchange, returning
+   temporary credentials (including the session token).
+4. `Amazon::S3::Lite` or other `Amazon::API` classes signs requests with those credentials.
+
+
+```perl
+if ( GitHub::Actions::OIDC->available && $ENV{AWS_ROLE_ARN} ) {
+  GitHub::Actions::OIDC->setup_aws_web_identity( role_arn => $ENV{AWS_ROLE_ARN} );
+}
+
+my $s3 = Amazon::S3::Lite->new(
+  { region      => $self->get_region,
+    credentials => Amazon::Credentials->new( order => [qw( env web_identity )] ),
+  }
+);
+```
+
+At **provision time**, `GitHub::Actions::AWS` creates the IAM role whose
+trust policy will *accept* the token that `GitHub::Actions::OIDC` later
+presents. The two halves have to agree on one thing — the role's trust
+policy must match the claims in the repository's OIDC token — and this
+project's job is to generate a trust policy that does.
+
+## Prerequisites
+
+Two one-time setup steps are required before any of this works. Skipping
+either produces a silent failure that is painful to diagnose, so pay
+attention.
+
+### 1. Register the GitHub OIDC provider in your AWS account (once per account)
+
+AWS validates the OIDC token's signature against a registered identity
+provider *before* it evaluates any role's trust policy. If the provider is
+not registered, `AssumeRoleWithWebIdentity` fails with `InvalidIdentityToken`
+("could not be validated") no matter how correct the token and trust policy
+are.
+
+```bash
+ghs-aws create-open-id-connect-provider --profile my-profile \
+  https://token.actions.githubusercontent.com sts.amazonaws.com
+```
+
+This is shared account-wide - register it once, and every repository
+in the account can use it.
+
+### 2. Grant `id-token: write` in the workflow
+
+The OIDC token endpoint is only exposed to a job that requests the
+permission explicitly. The generated workflow already includes it:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+```
+
+Without it, `GitHub::Actions::OIDC->available` is false and no token is
+minted.
+
+## The Tools
+
+### `gha-aws`
+
+The main command-line tool. Commands:
+
+| command                     | purpose |
+|-----------------------------|---------|
+| `create-permissions-policy` | assemble a least-privilege IAM policy from capability fragments and a `permissions.yml` |
+| `create-role`               | create the IAM role with an OIDC trust policy scoped to a repository |
+| `put-role-policy`           | attach an assembled permissions policy to a role |
+| `create-workflow`           | generate a `.github/workflows` YAML file |
+| `get-role`                  | show a role's trust policy |
+| `list-permissions`          | list the available capability fragments |
+| `list-role-policies`        | list the inline policies attached to a role |
+| `list-action-roles`         | list roles provisioned by this tool |
+| `delete-role-policy`        | detach an inline policy |
+| `delete-role`               | delete a role |
+| `upload-to-s3`              | (run-time) acquire OIDC credentials and sync files to S3 |
+
+Common options include `--profile`, `--region`, `--role-name`, `--repo`,
+`--repo-owner`, `--branch`, and `--bucket`. Run `gha-aws --help` for the
+full list.
+
+### `gha-manage-role`
+
+A thin wrapper that **normalizes role naming across projects**. It derives
+the repository and owner from the current git remote and enforces a single
+convention — `gha-<repo>-role` — so every project's role name and ARN are
+predictable and consistent:
+
+```bash
+# create the role and attach a permissions policy
+gha-manage-role create permissions-policy.json
+
+# tear it down
+gha-manage-role delete
+```
+
+This convention matters more than it looks: a mismatch between the role ARN
+your workflow assumes and the role you actually edited is one of the
+easiest ways to spend an afternoon debugging a trust policy that was correct
+all along. Deriving the name from the repository removes that entire class
+of error.
+
+## End-to-End Quickstart
+
+Publishing a static site (or a CPAN mirror, a blog, etc.) to S3:
+
+**1. Register the OIDC provider** (once per account — see Prerequisites).
+
+**2. Describe the permissions your workflow needs** in `permissions.yml`:
+
+```yaml
+---
+capabilities:
+  - s3-static-deploy
+vars:
+  bucket: cpan.openbedrock.net
+```
+
+**3. Assemble the permissions policy:**
+
+```bash
+gha-aws create-permissions-policy permissions.yml > permissions-policy.json
+```
+
+**4. Create the role and attach the policy** — from inside the repository,
+so the role name and trust scope are derived automatically:
+
+```bash
+export AWS_PROFILE=my-profile
+gha-manage-role create permissions-policy.json
+```
+
+**5. Generate the workflow:**
+
+```bash
+gha-aws create-workflow \
+  --name cpan-dist-maker \
+  --branch main \
+  --region us-east-1 \
+  --rebuild-paths 'source/**' \
+  --step "build=./builder" \
+  --step "publish=gha-aws --bucket cpan.openbedrock.net upload-to-s3" \
+  > .github/workflows/build.yml
+```
+
+**6. Publish the role ARN to the repository** as an Actions *variable*
+(it is an identifier, not a secret). The ARN follows directly from the
+account and the `gha-<repo>-role` naming convention — for example
+`arn:aws:iam::311974035819:role/gha-GitHub-Actions-AWS-role`:
+
+```bash
+gh variable set AWS_ROLE_ARN \
+  --body "arn:aws:iam::<account-id>:role/gha-<repo>-role"
+```
+
+and reference it in the workflow's `env:` as `${{ vars.AWS_ROLE_ARN }}`.
+Because the role name is derived deterministically from the repository, the
+ARN is predictable — which, as noted below, is exactly the point of the
+`gha-manage-role` convention.
+
+**7. Push to `main`.** The workflow requests an OIDC token, assumes the
+role, and runs your steps — `upload-to-s3` acquires credentials through
+`GitHub::Actions::OIDC` and syncs your output to the bucket. No stored
+keys, anywhere.
+
+## Permission Capability Fragments
+
+The permissions policy is assembled from small, single-capability fragments
+under `share/`. Select the ones a workflow needs in `permissions.yml`; the
+assembler substitutes your `vars`, validates that every `@variable@` is
+provided, and stitches the statements into one policy.
+
+| capability              | grants |
+|-------------------------|--------|
+| `s3-static-deploy`      | sync a site/asset tree to a bucket |
+| `cloudfront-invalidate` | invalidate a distribution after publish |
+| `ecr-push`              | push a container image to ECR |
+| `lambda-deploy`         | update Lambda code/config (with scoped `iam:PassRole`) |
+| `ecs-deploy`            | register a task definition and update a service |
+| `ssm-read`              | read SSM parameters |
+| `secrets-read`          | read a Secrets Manager secret |
+| `tf-state`              | Terraform/OpenTofu S3 state and DynamoDB lock |
+| `sns-notify`            | publish a CI/CD build-completion signal |
+
+The fragments already encode the IAM sharp edges: `iam:PassRole` is scoped
+to the specific execution role with an `iam:PassedToService` condition,
+actions that only accept `Resource: "*"` (like `ecr:GetAuthorizationToken`)
+are split into their own statements, and the S3 fragments respect the
+bucket-ARN vs. object-ARN distinction.
+
+## Trust Policy Scoping
+
+The trust policy is the security boundary — it decides *which* repository,
+and which branch, may assume the role. `create-role` scopes it to a single
+repository and branch. A few notes worth understanding:
+
+- **The role ARN is not a secret.** It is an identifier; publishing it in a
+  workflow file is expected. Assuming the role requires a GitHub-signed
+  token whose claims satisfy the trust policy, which only GitHub can mint
+  for a workflow running in your repository.
+- **Scope to `sub` or `job_workflow_ref`.** AWS requires the trust policy to
+  constrain one of these two claims. Matching only on `repository`/`ref` is
+  rejected as an unscoped policy.
+- **Mind the immutable `sub` format.** When a repository has GitHub's
+  immutable subject claim enabled, the `sub` claim carries numeric IDs
+  (`repo:owner@<id>/repo@<id>:...`). A trust policy pinned to the plain
+  `owner/repo` form will not match. `job_workflow_ref` stays in plain form
+  and is the simplest claim to match against.
+- **One role per repository** (the `gha-manage-role` convention) keeps each
+  role's blast radius to a single repository. Prefer this over a broad
+  `owner/*` role, which any workflow in any of your repositories could
+  assume.
+
+## See Also
+
+- [`GitHub::Actions::OIDC`](https://metacpan.org/pod/GitHub::Actions::OIDC) — the cloud-neutral OIDC token fetcher
+- [`Amazon::Credentials`](https://metacpan.org/pod/Amazon::Credentials) — resolves AWS credentials, including the `web_identity` provider
+- [`Amazon::S3::Lite`](https://metacpan.org/pod/Amazon::S3::Lite) — the S3 client used by `upload-to-s3`
+- [Configuring OpenID Connect in Amazon Web Services](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services) — GitHub's OIDC-to-AWS documentation
+
+## License
+
+This project is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.

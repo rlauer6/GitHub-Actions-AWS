@@ -14,11 +14,170 @@ use JSON;
 use Role::Tiny;
 
 ########################################################################
+sub cmd_get_role {
+########################################################################
+  my ($self) = @_;
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my ($role_name) = $self->get_args;
+  $role_name //= $self->get_role_name;
+
+  die "ERROR: usage: create-role role-name\n"
+    if !$role_name;
+
+  my $rsp = $self->_iam_get_role($role_name);
+
+  print {*STDOUT} JSON->new->pretty->encode($rsp);
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_list_action_roles {
+########################################################################
+  my ($self) = @_;
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my $rsp = $self->_iam_list_roles('/github-actions/');
+
+  print {*STDOUT} JSON->new->pretty->encode($rsp);
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_list_role_policies {
+########################################################################
+  my ($self) = @_;
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my ($role_name) = $self->get_args;
+  $role_name //= $self->get_role_name;
+
+  die "ERROR: usage: create-role role-name\n"
+    if !$role_name;
+
+  my $rsp = $self->_iam_list_role_policies($role_name);
+
+  print {*STDOUT} JSON->new->pretty->encode($rsp);
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_create_open_id_connect_provider {
+########################################################################
+  my ($self) = @_;
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my ( $url, @client_id_list ) = $self->get_args;
+  my $rsp = $self->_iam_create_open_id_connect_provider( $url, @client_id_list );
+
+  print {*STDOUT} JSON->new->pretty->encode($rsp);
+
+  return $SUCCESS;
+}
+
+#aws iam create-open-id-connect-provider \
+#   --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com
+########################################################################
+sub _iam_create_open_id_connect_provider {
+########################################################################
+  my ( $self, $url, @client_id_list ) = @_;
+
+  my $iam = $self->_get_iam;
+
+  return $iam->CreateOpenIDConnectProvider( { Url => $url, ClientIDList => \@client_id_list } );
+}
+
+########################################################################
+sub cmd_get_open_id_connect_provider {
+########################################################################
+  my ($self) = @_;
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my ($arn) = $self->get_args;
+  my $rsp = $self->_iam_get_open_id_connect_provider($arn);
+
+  print {*STDOUT} JSON->new->pretty->encode($rsp);
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub _iam_get_open_id_connect_provider {
+########################################################################
+  my ( $self, $arn ) = @_;
+
+  my $iam = $self->_get_iam;
+
+  return $iam->GetOpenIDConnectProvider( { OpenIDConnectProviderArn => $arn } );
+}
+
+########################################################################
+sub cmd_delete_open_id_connect_provider {
+########################################################################
+  my ($self) = @_;
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my ($arn) = $self->get_args;
+  my $rsp = $self->_iam_delete_open_id_connect_provider($arn);
+
+  print {*STDOUT} JSON->new->pretty->encode($rsp);
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub _iam_delete_open_id_connect_provider {
+########################################################################
+  my ( $self, $arn ) = @_;
+
+  my $iam = $self->_get_iam;
+
+  return $iam->DeleteOpenIDConnectProvider( { OpenIDConnectProviderArn => $arn } );
+}
+
+########################################################################
+sub cmd_list_open_id_connect_providers {
+########################################################################
+  my ($self) = @_;
+
+  local $ENV{AWS_PROFILE} //= $self->get_profile;
+
+  my $rsp = $self->_iam_list_open_id_connect_providers();
+
+  print {*STDOUT} JSON->new->pretty->encode($rsp);
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub _iam_list_open_id_connect_providers {
+########################################################################
+  my ($self) = @_;
+
+  my $iam = $self->_get_iam;
+
+  return $iam->ListOpenIDConnectProviders();
+}
+
+########################################################################
 sub cmd_create_role {
 ########################################################################
   my ($self) = @_;
 
-  my $role_name = $self->get_role_name // 'github-actions-role';
+  my ($role_name) = $self->get_args;
+  $role_name //= $self->get_role_name;
+
+  die "ERROR: usage: create-role role-name\n"
+    if !$role_name;
 
   local $ENV{AWS_PROFILE} //= $self->get_profile;
 
@@ -60,7 +219,7 @@ sub cmd_create_role {
     $self->get_logger->info( sprintf 'creating role "%s"%s', $role_name, $dryrun );
 
     if ( !$dryrun ) {
-      $self->_iam_create_role( $role_name, $trust_policy );
+      $self->_iam_create_role( $role_name, '/github-actions/', $trust_policy );
     }
 
     print {*STDOUT} JSON->new->pretty->encode($trust_policy);
@@ -129,6 +288,7 @@ sub _iam_delete_role_policy {
   my ( $self, $role_name, $policy_name ) = @_;
 
   my $iam = $self->_get_iam;
+
   return $iam->DeleteRolePolicy( { RoleName => $role_name, PolicyName => $policy_name } );
 }
 
@@ -138,7 +298,18 @@ sub _iam_delete_role {
   my ( $self, $role_name, $policy_name ) = @_;
 
   my $iam = $self->_get_iam;
+
   return $iam->DeleteRole( { RoleName => $role_name } );
+}
+
+########################################################################
+sub _iam_list_roles {
+########################################################################
+  my ( $self, $prefix ) = @_;
+
+  my $iam = $self->_get_iam;
+
+  return $iam->ListRoles( $prefix ? { PathPrefix => $prefix } : () );
 }
 
 ########################################################################
@@ -222,12 +393,13 @@ sub _iam_list_role_policies {
 ########################################################################
 sub _iam_create_role {
 ########################################################################
-  my ( $self, $role_name, $policy ) = @_;
+  my ( $self, $role_name, $path, $policy ) = @_;
 
   my $iam = $self->_get_iam;
 
   $iam->CreateRole(
     { RoleName                 => $role_name,
+      Path                     => $path,
       AssumeRolePolicyDocument => encode_json($policy),
     }
   );

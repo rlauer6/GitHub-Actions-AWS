@@ -74,6 +74,8 @@ $(eval $(call find-files,BIN_FILES,bin,*.in))
 $(eval $(call find-files,TESTS,t,*.t))
 $(eval $(call find-files,SOURCE_FILES,lib bin,*.p[ml].in))
 
+SOURCE_FILES_IN := $(addsuffix .in,$(SOURCE_FILES))
+
 POD_MODULES = $(PERL_MODULES:.pm=.pod)
 
 TARBALL = $(PROJECT_NAME)-$(VERSION).tar.gz
@@ -199,7 +201,7 @@ endif
 
 .INTERMEDIATE: requires.raw recommends.raw suggests.raw test-requires.raw
 
-requires.raw recommends.raw suggests.raw &: $(SOURCE_FILES) ## single scan producing all three library dependency tiers
+requires.raw recommends.raw suggests.raw &: $(SOURCE_FILES_IN) ## single scan producing all three library dependency tiers
 	$(NO_ECHO)printf '%s\n' $(SOURCE_FILES) > file_list.tmp; \
 	$(SCANDEPS) $(MIN_PERL_VERSION_FLAG) \
 	  --raw \
@@ -290,6 +292,7 @@ CLEANFILES += \
     *.xxx \
     *.raw \
     extra-files \
+    extra-files.mk \
     provides \
     module.pm.tmpl \
     release-*.{lst,diffs} \
@@ -367,9 +370,15 @@ check: $(GSOURCE_FILES) ## syntax check and create source from .in file
 # so there's no chicken-and-egg with $(PERL_MODULES) needing to be
 # built before deps.mk can be regenerated, and 'make clean' can never
 # trigger a rebuild through this include (clean doesn't touch .pm.in).
-deps.mk: $(SOURCE_FILES)
+deps.mk: $(SOURCE_FILES_IN)
 	$(NO_ECHO)cmb create-deps > $@
 
 .PHONY: package
 package: clean ## run lint & scan
 	$(MAKE) LINT=on SCAN=on
+
+# extra-files.mk:  $(TARBALL): share/foo.tpl share/bar.tpl ...
+extra-files.mk: buildspec.yml extra-files
+	$(NO_ECHO)printf '$$(TARBALL): %s\n' "$$(awk 'NF{print $$1}' extra-files | tr '\n' ' ')" > $@
+
+-include extra-files.mk

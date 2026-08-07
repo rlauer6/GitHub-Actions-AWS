@@ -9,10 +9,10 @@ use CLI::Simple::Constants qw(:booleans);
 use CLI::Simple::Utils qw(slurp slurp_json to_snake_case toPascalCase choose);
 use Data::Dumper;
 use English qw(-no_match_vars);
-use List::Util qw(any);
+use List::Util qw(any uniq);
 use File::ShareDir qw(dist_dir);
 use JSON;
-use YAML::Tiny qw(LoadFile);
+use YAML::Tiny qw(LoadFile Dump);
 
 use Readonly;
 Readonly::Scalar our $POLICY_VERSION => '2012-10-17';
@@ -99,7 +99,70 @@ sub cmd_list_permissions {
 
   my $fragments = $self->_get_fragments;
 
-  print {*STDOUT} sprintf "%s\n", join "\n", map { to_snake_case $_ } keys %{$fragments};
+  my %required;
+
+  foreach my $f ( keys %{$fragments} ) {
+    my $text = encode_json( $fragments->{$f} );
+    my @vars;
+    while ( $text =~ /[@]([^@]+)[@]/xsmg ) { push @vars, $1; }
+    $required{$f} = [ uniq @vars ];
+  }
+
+  if ( $self->get_format =~ /^ya?ml$/xsm ) {
+    my $permissions = <<'END_OF_TEXT';
+---
+# 1. Uncomment the permissions to include in your policy
+#
+# 2. Populate the required variables for the services you enable
+#
+# 3. Create a policy document
+#
+#    gha-aws create-permissions-policy permissions.yml > permissions-policy.json
+#
+# 4. Customize the policy if required
+#
+# 5. Create a role and apply the policy
+#
+#    gha-manage-role create permissions-policy.json
+#
+END_OF_TEXT
+
+    $permissions .= "capabilities:\n#  - " . join "\n#  - ", sort keys %required;
+    $permissions .= "\n\nvars:";
+    foreach my $f ( sort keys %required ) {
+      $permissions .= "\n# -- $f --\n";
+      $permissions .= "#  " . join "\n#  ", map { $_ . ':' } @{ $required{$f} };
+      $permissions .= "\n";
+    }
+
+    print {*STDOUT} $permissions;
+
+    return $SUCCESS;
+  }
+
+  my $has_text_ascii_table = eval {
+    require Text::ASCIITable;
+    return 1;
+  };
+
+  if ( !$has_text_ascii_table ) {
+    print {*STDOUT} JSON->new->pretty->encode( \%required );
+    return $SUCCESS;
+  }
+
+  my $t = Text::ASCIITable->new( { headingText => 'Managed Permission Policies' } );
+  $t->setCols( 'Policy', 'Required Variables', 'Actions' );
+
+  foreach my $r ( sort keys %required ) {
+
+    my $action      = $fragments->{$r}->[0]->{Action};
+    my @action_list = sort map { ( split /[:]/xsm )[1] } ref $action ? @{$action} : $action;
+
+    $t->addRow( $r, join( "\n", @{ $required{$r} } ), join "\n", @action_list );
+    $t->addRowLine();
+  }
+
+  print {*STDOUT} $t;
 
   return $SUCCESS;
 }

@@ -22,32 +22,48 @@ sub cmd_upload_to_s3 {
   my ($self) = @_;
 
   my ($tarball) = glob '*.tar.gz';
+
+  $self->get_logger->level(5000);
+
   $self->get_logger->info( sprintf 'tarball: %s', $tarball // 'not found' );
 
   return $FAILURE
     if !$tarball;
 
-  my $bucket = $self->get_bucket;
-  my $key    = sprintf 'orepan2/authors/id/D/DU/DUMMY/%s', $tarball;
+  my $bucket //= $self->get_bucket // $ENV{AWS_BUCKET_NAME};
 
-  $self->get_logger->info( sprintf 'ENVIRONMENT: %s', Dumper( \%ENV ) );
+  die "ERROR: --bucket is a required argument\n"
+    if !$bucket;
 
-  $self->get_logger->info('setting up web identity...');
+  my $bucket_prefix = $self->get_bucket_prefix // $ENV{AWS_BUCKET_PREFIX} // q{};
 
-  GitHub::Actions::OIDC->setup_aws_web_identity( role_arn => $ENV{AWS_ROLE_ARN} )
-    if GitHub::Actions::OIDC->available;
+  my $key = sprintf '%s/%s', $bucket_prefix, $tarball;
 
-  $self->get_logger->info( sprintf 'ENVIRONMENT: %s', Dumper( \%ENV ) );
+  $self->get_logger->debug( sprintf 'ENVIRONMENT: %s', Dumper( \%ENV ) );
 
-  my $s3 = Amazon::S3::Lite->(
-    { region      => 'us-east-1',
-      credentials => Amazon::Credentials->new( order => [ env web_identity ] )
+  if ( GitHub::Actions::OIDC->available && $ENV{AWS_ROLE_ARN} ) {
+    $self->get_logger->info('setting up web identity...');
+
+    GitHub::Actions::OIDC->setup_aws_web_identity( role_arn => $ENV{AWS_ROLE_ARN} );
+
+    $self->get_logger->debug( sprintf 'ENVIRONMENT: %s', Dumper( \%ENV ) );
+    $self->get_logger->debug( sprintf '-s %s: %s', $ENV{AWS_WEB_IDENTITY_TOKEN_FILE}, -s $ENV{AWS_WEB_IDENTITY_TOKEN_FILE} );
+    $self->get_logger->debug( sprintf '%s: %s', $ENV{AWS_WEB_IDENTITY_TOKEN_FILE}, slurp( $ENV{AWS_WEB_IDENTITY_TOKEN_FILE} ) );
+  }
+
+  my $s3 = Amazon::S3::Lite->new(
+    { region      => $self->get_region,
+      credentials => Amazon::Credentials->new(
+        order  => [qw(env web_identity)],
+        debug  => 1,  # $ENV{DEBUG},
+        logger => $self->get_logger
+      )
     }
   );
 
   $s3->put_object( $bucket, $key, slurp($tarball) );
 
-  $self->get_logger->info( 'Successfully uploaded %s -> %s', $tarball, $key );
+  $self->get_logger->info( sprintf 'Successfully uploaded %s -> %s', $tarball, $key );
 
   return $SUCCESS;
 }

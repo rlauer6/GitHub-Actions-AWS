@@ -7,6 +7,7 @@ CLI::Simple::Constants 2.2.1
 CLI::Simple::Utils 2.2.1
 File::ShareDir 1.118
 GitHub::Actions::OIDC 1.0.0
+HTTP::Tiny 0.088
 JSON 4.10
 Readonly 2.05
 Role::Tiny 2.002004

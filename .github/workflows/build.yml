@@ -1,4 +1,4 @@
-name: cpan-dist-maker
+name: GitHub-Actions-AWS
 
 on:
   push:
@@ -9,17 +9,19 @@ permissions:
   contents: read
 
 concurrency:                    # coalesce rapid pushes; never two publishes at once
-  group: cpan-dist-maker-group
+  group: GitHub-Actions-AWS
   cancel-in-progress: false     # let an in-flight publish finish, then run latest
 
 jobs:
-  cpan-dist-maker-job:
+  GitHub-Actions-AWS-job:
     runs-on: ubuntu-latest
     container:                  # deps prebaked; see Phase 3 note
       image: debian:trixie
     env:
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-      AWS_REGION:   us-east-1
+      AWS_BUCKET_NAME: ${{ vars.AWS_BUCKET_NAME }}
+      AWS_BUCKET_PREFIX: ${{ vars.AWS_BUCKET_PREFIX }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -28,4 +30,4 @@ jobs:
           ./builder
       - name: publish
         run: |
-          gha-aws upload-to-s3 cpan.openbedrock.net
+          gha-aws upload-to-s3

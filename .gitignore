@@ -15,6 +15,7 @@ test.t.tmpl
 *.diffs
 *.lst
 extra-files
+extra-files.mk
 provides
 resources
 *-review-2*.pod
@@ -23,3 +24,5 @@ resources
 **/*.crit
 **/*.tdy
 bin/gha-aws
+bin/*
+!bin/*.in

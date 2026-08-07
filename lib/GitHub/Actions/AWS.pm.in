@@ -19,6 +19,8 @@ use Role::Tiny::With;
 with 'GitHub::Actions::AWS::IAM';
 with 'GitHub::Actions::AWS::IAM::Permissions';
 with 'GitHub::Actions::AWS::Workflow';
+with 'GitHub::Actions::AWS::S3';
+with 'GitHub::Actions::API';
 
 use parent qw(CLI::Simple);
 
@@ -57,7 +59,9 @@ sub main {
     account-id|a=s
     branch|b=s
     bucket=s
+    bucket-prefix=s
     dryrun|D
+    format=s
     group=s
     image=s
     job-name|j=s
@@ -77,14 +81,22 @@ sub main {
   );
 
   my %commands = (
-    'create-permissions-policy' => \&cmd_create_permissions_policy,
-    'create-role'               => \&cmd_create_role,
-    'create-workflow'           => \&cmd_create_workflow,
-    'delete-role'               => \&cmd_delete_role,
-    'delete-role-policy'        => \&cmd_delete_role_policy,
-    'list-permissions'          => \&cmd_list_permissions,
-    'put-role-policy'           => \&cmd_put_role_policy,
-    'push-to-s3'                => \&cmd_push_to_s3,
+    'create-permissions-policy'       => \&cmd_create_permissions_policy,
+    'create-role'                     => \&cmd_create_role,
+    'create-workflow'                 => \&cmd_create_workflow,
+    'create-open-id-connect-provider' => \&cmd_create_open_id_connect_provider,
+    'delete-open-id-connect-provider' => \&cmd_delete_open_id_connect_provider,
+    'delete-role'                     => \&cmd_delete_role,
+    'delete-role-policy'              => \&cmd_delete_role_policy,
+    'get-role'                        => \&cmd_get_role,
+    'get-open-id-connect-provider'    => \&cmd_get_open_id_connect_provider,
+    'list-open-id-connect-providers'  => \&cmd_list_open_id_connect_providers,
+    'list-permissions'                => \&cmd_list_permissions,
+    'list-role-policies'              => \&cmd_list_role_policies,
+    'list-action-roles'               => \&cmd_list_action_roles,
+    'put-role-policy'                 => \&cmd_put_role_policy,
+    'set-gh-variable'                 => \&cmd_set_gh_variable,
+    'upload-to-s3'                    => \&cmd_upload_to_s3,
   );
 
   return __PACKAGE__->new(

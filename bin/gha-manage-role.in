@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#-*- mode:sh; -*-
+# gha-manage-role create|delete permissions-policy.json
+
+set -euo pipefail
+
+ACTION="${1:-create}"
+POLICY_DOCUMENT="${2:-}"
+REPO="${REPO:-$(basename -s .git $(git config --get remote.origin.url))}"
+REPO_OWNER="${REPO_OWNER:-$(git config --get remote.origin.url | awk -F'[:/]' '{print $(NF-1)}')}"
+ROLE_NAME="gha-$REPO-role"
+
+if [[ "$ACTION" = "create" ]]; then
+    if [[ -z "$POLICY_DOCUMENT" ]]; then
+        echo "usage: gha-manage-role create policy-document.json"
+        exit 1;
+    elif ! [[ -e "$POLICY_DOCUMENT" ]]; then
+        echo "$POLICY_DOCUMENT does not exist!"
+        echo "Create the permissions policy document first - gha-aws create-permissions-policy policy.yml"
+        exit 1;
+    fi
+
+    gha-aws --repo $REPO --repo-owner $REPO_OWNER --role-name $ROLE_NAME --profile $AWS_PROFILE create-role
+    gha-aws --role-name $ROLE_NAME --policy-document $POLICY_DOCUMENT --profile $AWS_PROFILE put-role-policy
+elif [[ "$ACTION" = "delete" ]]; then
+    gha-aws --role-name $ROLE_NAME --policy-name "$ROLE_NAME-policy" --profile $AWS_PROFILE delete-role-policy
+    gha-aws --role-name $ROLE_NAME --profile $AWS_PROFILE delete-role
+fi
