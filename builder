@@ -108,11 +108,6 @@ if [[ -n "$REPO" ]]; then
         git clone $REPO
     fi
     cd $dir
-else
-   ls -alrt /
-   ls -alrt .
-   git rev-parse --git-dir > /dev/null 2>&1 \
-        || { echo "ERROR: not a git repository and no REPO specified" >&2; exit 1; }
 fi
 
 BRANCH_NAME="${BUILD_BRANCH:-${GITHUB_REF_NAME:-}}"
