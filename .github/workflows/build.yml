@@ -3,7 +3,6 @@ name: cpan-dist-maker
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 permissions:
   id-token: write               # exposes the OIDC token endpoint — required
@@ -27,6 +26,3 @@ jobs:
       - name: build
         run: |
           ./builder
-      - name: publish
-        run: |
-          gha-aws --bucket cpan.openbedrock.net push-to-s3
