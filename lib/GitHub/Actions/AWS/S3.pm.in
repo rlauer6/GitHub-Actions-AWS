@@ -22,6 +22,7 @@ sub cmd_upload_to_s3 {
   my ($self) = @_;
 
   my ($tarball) = glob '*.tar.gz';
+  $self->get_logger->info( sprintf 'tarball: %s', $tarball // 'not found' );
 
   return $FAILURE
     if !$tarball;
@@ -29,8 +30,12 @@ sub cmd_upload_to_s3 {
   my $bucket = $self->get_bucket;
   my $key    = sprintf 'orepan2/authors/id/D/DU/DUMMY/%s', $tarball;
 
+  $self->get_logger->info('setting up web identity...');
+
   GitHub::Actions::OIDC->setup_aws_web_identity( role_arn => $ENV{AWS_ROLE_ARN} )
     if GitHub::Actions::OIDC->available;
+
+  $self->get_logger->info( sprintf 'ENVIRONMENT: %s', Dumper( \%ENV ) );
 
   my $s3 = Amazon::S3::Lite->(
     { region      => 'us-east-1',
@@ -39,6 +44,8 @@ sub cmd_upload_to_s3 {
   );
 
   $s3->put_object( $bucket, $key, slurp($tarball) );
+
+  $self->get_logger->info( 'Successfully uploaded %s -> %s', $tarball, $key );
 
   return $SUCCESS;
 }

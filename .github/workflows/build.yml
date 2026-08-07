@@ -26,3 +26,6 @@ jobs:
       - name: build
         run: |
           ./builder
+      - name: publish
+        run: |
+          gha-aws push-to-s3 cpan.openbedrock.net
